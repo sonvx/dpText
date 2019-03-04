@@ -1,4 +1,4 @@
-# dpUGC: Learn Differentially Private Representationfor User Generated Contents
+# dpUGC: Learn Differentially Private Representationfor User Generated Contents (Text)
 ## How to train privacy-guarantee embedding models on new dataset.
 * This is for training private embedding on new data:
 > cd codes/
