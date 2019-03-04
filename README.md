@@ -14,8 +14,7 @@ then run this command in that environment:
 
 ### Experiment 1: Semantic Changes
 * How to run:
-> cd codes/
->
+> cd codes/ <br>
 > ./01.run_changes_in_semantic_spaces.sh
 * Expected outputs: see the evaluation results from the console (see images/results_fig2.png). 
 The results should be similar to **Figure 2** in the paper.
@@ -27,8 +26,7 @@ and select the top similar words and run this evaluation again.
 
 ### Experiment 2: Linear Regression Task.
 * How to run:
-> cd codes/
->
+> cd codes/ <br>
 > ./02.run_evaluation_regression_task.sh
 
 * Expected outputs: printed in the console (see images/results_table3.png). Evaluation results similar to **Table 3** in the paper. 
