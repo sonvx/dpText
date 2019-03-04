@@ -1,7 +1,7 @@
 # dpUGC: Learn Differentially Private Representationfor User Generated Contents (Text)
 ## How to train privacy-guarantee embedding models on new dataset.
 * This is for training private embedding on new data:
-> cd codes/
+> cd codes/ <br>
 > ./10.run_train_dp_embedding.sh
 
 ## How to prepare the environment to run the code:
