@@ -3,8 +3,7 @@
 ## How to cite:
 ```
 @InProceedings{Vu:CiCLing:2019b,
-	author    = {Xuan-Son Vu and
-	Lili Jiang},
+	author    = {Xuan-Son Vu, Son N. Tran, Lili Jiang},
 	title     = {dpUGC: Learn Differentially Private Representationfor User Generated Contents},
 	booktitle   = {Proceedings of the 20th International Conference on Computational Linguistics and Intelligent Text Processing, April, 2019},
 	year      = {2019},
