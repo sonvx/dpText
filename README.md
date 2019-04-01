@@ -1,4 +1,17 @@
 # dpUGC: Learn Differentially Private Representationfor User Generated Contents (Text)
+* Paper: https://arxiv.org/abs/1903.10453
+## How to cite:
+```
+@InProceedings{Vu:CiCLing:2019b,
+	author    = {Xuan-Son Vu and
+	Lili Jiang},
+	title     = {dpUGC: Learn Differentially Private Representationfor User Generated Contents},
+	booktitle   = {Proceedings of the 20th International Conference on Computational Linguistics and Intelligent Text Processing, April, 2019},
+	year      = {2019},
+	location = 	{La Rochelle, France}
+}
+```
+
 ## How to train privacy-guarantee embedding models on new dataset.
 * This is for training private embedding on new data:
 > cd codes/ <br>
