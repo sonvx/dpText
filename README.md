@@ -1,5 +1,5 @@
 # dpUGC: Learn Differentially Private Representationfor User Generated Contents 
-* Paper: https://arxiv.org/abs/1904.10454
+* Paper: https://arxiv.org/abs/1903.10453
 ## How to cite:
 ```
 @InProceedings{Vu:CiCLing:2019b,
