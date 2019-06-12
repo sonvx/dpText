@@ -1,4 +1,4 @@
-# dpUGC: Learn Differentially Private Representationfor User Generated Contents 
+# dpUGC: Learn Differentially Private Representation for User Generated Contents 
 * Paper: https://arxiv.org/abs/1903.10453
 ## How to cite:
 ```
