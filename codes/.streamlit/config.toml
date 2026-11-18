@@ -1,0 +1,17 @@
+[server]
+# The dashboard can read any local file you point it at, so keep it on this machine only.
+address = "localhost"
+port = 8501
+headless = true
+maxUploadSize = 1024  # MB; for bigger files paste their path instead of uploading
+# Pick up code changes without a restart. The watcher makes a running session re-read app.py; app.py
+# itself re-imports changed helper modules (refresh_project_modules), which also covers page reloads.
+fileWatcherType = "auto"
+
+[browser]
+gatherUsageStats = false
+serverAddress = "localhost"
+
+[client]
+# Hide the "Deploy" (publish to Streamlit Community Cloud) button: this is a local tool.
+toolbarMode = "minimal"

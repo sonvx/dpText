@@ -1,13 +1,17 @@
-matplotlib==2.2.2
-emoji==0.5.1
-pandas==0.22.0
-absl_py==0.1.10
-numpy==1.15.4
-six==1.11.0
-tensorflow==1.12.0
-scipy==1.1.0
-gensim==3.6.0
-nltk==3.2.5
-absl==0.0
-codes==0.1.0
-scikit_learn==0.20.3
+# Python 3.10 - 3.13.
+# (Python 3.14 is not supported yet: TensorFlow 2.21 and gensim 4.4 publish no 3.14 wheels.)
+# Last tested (Nov 2026) with Python 3.13 and: numpy 2.5.5, pandas 3.1.1, scipy 1.18.1,
+# scikit-learn 1.9.1, gensim 4.4.0, nltk 3.10.4, emoji 2.16.0, matplotlib 3.11.2, absl-py 2.5.1, tensorflow 2.21.0.
+numpy>=1.26
+pandas>=2.2
+scipy>=1.13
+scikit-learn>=1.5
+gensim>=4.3.3
+nltk>=3.9.1
+emoji>=2.10
+matplotlib>=3.8
+absl-py>=2.1
+
+# Only needed to train new embeddings (codes/10.run_train_dp_embedding.sh).
+# The two evaluation experiments run without it.
+tensorflow>=2.16

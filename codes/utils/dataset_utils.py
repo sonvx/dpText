@@ -13,20 +13,19 @@
 # limitations under the License.
 # ==============================================================================
 """Contains utilities for downloading and converting datasets."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
+import itertools
 import os
+import re
 import sys
 import tarfile
-import re
-
-from six.moves import urllib
-import tensorflow as tf
+import urllib.request
 from collections import Counter
-import itertools
-import pandas as pd
+
+import numpy as np
+
+# NOTE: TensorFlow is only needed by the TFRecord/label-file helpers below, so it
+# is imported lazily there. This keeps the evaluation scripts usable without
+# installing TensorFlow.
 
 LABELS_FILENAME = 'labels.txt'
 
@@ -40,6 +39,7 @@ def int64_feature(values):
     Returns:
       A TF-Feature.
     """
+    import tensorflow as tf
     if not isinstance(values, (tuple, list)):
         values = [values]
     return tf.train.Feature(int64_list=tf.train.Int64List(value=values))
@@ -54,6 +54,7 @@ def bytes_feature(values):
     Returns:
       A TF-Feature.
     """
+    import tensorflow as tf
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[values]))
 
 
@@ -66,12 +67,14 @@ def float_feature(values):
     Returns:
       A TF-Feature.
     """
+    import tensorflow as tf
     if not isinstance(values, (tuple, list)):
         values = [values]
     return tf.train.Feature(float_list=tf.train.FloatList(value=values))
 
 
 def image_to_tfexample(image_data, image_format, height, width, class_id):
+    import tensorflow as tf
     return tf.train.Example(features=tf.train.Features(feature={
         'image/encoded': bytes_feature(image_data),
         'image/format': bytes_feature(image_format),
@@ -100,7 +103,9 @@ def download_and_uncompress_tarball(tarball_url, dataset_dir):
     print()
     statinfo = os.stat(filepath)
     print('Successfully downloaded', filename, statinfo.st_size, 'bytes.')
-    tarfile.open(filepath, 'r:gz').extractall(dataset_dir)
+    with tarfile.open(filepath, 'r:gz') as tar:
+        # filter='data' rejects absolute paths / path traversal in the archive.
+        tar.extractall(dataset_dir, filter='data')
 
 
 def write_label_file(labels_to_class_names, dataset_dir,
@@ -112,8 +117,9 @@ def write_label_file(labels_to_class_names, dataset_dir,
       dataset_dir: The directory in which the labels file should be written.
       filename: The filename where the class names are written.
     """
+    import tensorflow as tf
     labels_filename = os.path.join(dataset_dir, filename)
-    with tf.gfile.Open(labels_filename, 'w') as f:
+    with tf.io.gfile.GFile(labels_filename, 'w') as f:
         for label in labels_to_class_names:
             class_name = labels_to_class_names[label]
             f.write('%d:%s\n' % (label, class_name))
@@ -129,7 +135,8 @@ def has_labels(dataset_dir, filename=LABELS_FILENAME):
     Returns:
       `True` if the labels file exists and `False` otherwise.
     """
-    return tf.gfile.Exists(os.path.join(dataset_dir, filename))
+    import tensorflow as tf
+    return tf.io.gfile.exists(os.path.join(dataset_dir, filename))
 
 
 def read_label_file(dataset_dir, filename=LABELS_FILENAME):
@@ -142,8 +149,9 @@ def read_label_file(dataset_dir, filename=LABELS_FILENAME):
     Returns:
       A map from a label (integer) to class name.
     """
+    import tensorflow as tf
     labels_filename = os.path.join(dataset_dir, filename)
-    with tf.gfile.Open(labels_filename, 'rb') as f:
+    with tf.io.gfile.GFile(labels_filename, 'rb') as f:
         lines = f.read().decode()
     lines = lines.split('\n')
     lines = filter(None, lines)
@@ -169,9 +177,9 @@ def refine_text(string):
     string = re.sub(r"\'ll", " \'ll", string)
     string = re.sub(r",", " , ", string)
     string = re.sub(r"!", " ! ", string)
-    string = re.sub(r"\(", " \( ", string)
-    string = re.sub(r"\)", " \) ", string)
-    string = re.sub(r"\?", " \? ", string)
+    string = re.sub(r"\(", r" \( ", string)
+    string = re.sub(r"\)", r" \) ", string)
+    string = re.sub(r"\?", r" \? ", string)
     string = re.sub(r"\s{2,}", " ", string)
     return string.strip().lower()
 
@@ -181,8 +189,10 @@ def read_sentiment_data(data_loc):
         data_loc += "/"
     file1 = data_loc + 'rt-polarity.pos'
     file2 = data_loc + 'rt-polarity.neg'
-    positive_examples = list(open(file1).readlines())
-    negative_examples = list(open(file2).readlines())
+    with open(file1, encoding="utf-8", errors="ignore") as f:
+        positive_examples = f.readlines()
+    with open(file2, encoding="utf-8", errors="ignore") as f:
+        negative_examples = f.readlines()
 
     positive_examples = [s.strip() for s in positive_examples]
     negative_examples = [s.strip() for s in negative_examples]
@@ -209,7 +219,6 @@ def process_personality_data(raw_data_df, is_text_label=False):
     :param is_text_label:
     :return:
     """
-    import numpy as np
     # x.tolist() if
     data_df = raw_data_df.groupby("AUTHID", as_index=False).agg(lambda x: x.tolist())
     #    AUTHID                       STATUS    cEXT    cNEU    cAGR    cCON    cOPN
@@ -236,18 +245,18 @@ def process_personality_data(raw_data_df, is_text_label=False):
     data_df['sNEU'] = sNEU_y_data
 
     # list of labels
-    cEXT_y_data = map(lambda x: 0 if (x == 'y') else 1, [y[0] for y in data_df.cEXT])
-    cOPN_y_data = map(lambda x: 2 if (x == 'y') else 3, [y[0] for y in data_df.cOPN])
-    cAGR_y_data = map(lambda x: 4 if (x == 'y') else 5, [y[0] for y in data_df.cAGR])
-    cCON_y_data = map(lambda x: 6 if (x == 'y') else 7, [y[0] for y in data_df.cCON])
-    cNEU_y_data = map(lambda x: 8 if (x == 'y') else 9, [y[0] for y in data_df.cNEU])
+    cEXT_y_data = [(0 if (x == 'y') else 1) for x in [y[0] for y in data_df.cEXT]]
+    cOPN_y_data = [(2 if (x == 'y') else 3) for x in [y[0] for y in data_df.cOPN]]
+    cAGR_y_data = [(4 if (x == 'y') else 5) for x in [y[0] for y in data_df.cAGR]]
+    cCON_y_data = [(6 if (x == 'y') else 7) for x in [y[0] for y in data_df.cCON]]
+    cNEU_y_data = [(8 if (x == 'y') else 9) for x in [y[0] for y in data_df.cNEU]]
 
     if is_text_label:
-        cEXT_y_data = map(lambda x: 'Y.cEXT' if (x == 'y') else 'N.cEXT', [y[0] for y in data_df.cEXT])
-        cOPN_y_data = map(lambda x: 'Y.cOPN' if (x == 'y') else 'N.cOPN', [y[0] for y in data_df.cOPN])
-        cAGR_y_data = map(lambda x: 'Y.cAGR' if (x == 'y') else 'N.cAGR', [y[0] for y in data_df.cAGR])
-        cCON_y_data = map(lambda x: 'Y.cCON' if (x == 'y') else 'N.cCON', [y[0] for y in data_df.cCON])
-        cNEU_y_data = map(lambda x: 'Y.cNEU' if (x == 'y') else 'N.cNEU', [y[0] for y in data_df.cNEU])
+        cEXT_y_data = [('Y.cEXT' if (x == 'y') else 'N.cEXT') for x in [y[0] for y in data_df.cEXT]]
+        cOPN_y_data = [('Y.cOPN' if (x == 'y') else 'N.cOPN') for x in [y[0] for y in data_df.cOPN]]
+        cAGR_y_data = [('Y.cAGR' if (x == 'y') else 'N.cAGR') for x in [y[0] for y in data_df.cAGR]]
+        cCON_y_data = [('Y.cCON' if (x == 'y') else 'N.cCON') for x in [y[0] for y in data_df.cCON]]
+        cNEU_y_data = [('Y.cNEU' if (x == 'y') else 'N.cNEU') for x in [y[0] for y in data_df.cNEU]]
 
 
     labels_list = np.array([cEXT_y_data, cOPN_y_data, cAGR_y_data, cCON_y_data, cNEU_y_data])

@@ -23,7 +23,7 @@ from __future__ import division
 import math
 
 import numpy
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class LayerParameters(object):
@@ -153,7 +153,7 @@ def BuildNetwork(inputs, network_parameters):
   outputs = tf.reshape(outputs, [-1, num_inputs])
 
   # Now project, if needed
-  if network_parameters.projection_type is not "NONE":
+  if network_parameters.projection_type != "NONE":
     projection = tf.Variable(tf.truncated_normal(
         [num_inputs, network_parameters.projection_dimensions],
         stddev=1.0 / math.sqrt(num_inputs)), trainable=False, name="projection")
@@ -277,7 +277,7 @@ def SoftThreshold(t, threshold_ratio, name=None):
     t_abs = tf.abs(t2)
     t_x = tf.sign(t2) * tf.nn.relu(t_abs -
                                    (tf.reduce_mean(t_abs, [0],
-                                                   keep_dims=True) *
+                                                   keepdims=True) *
                                     threshold_ratio))
     return tf.reshape(t_x, saved_shape, name=name)
 

@@ -55,16 +55,13 @@ def save_embedding_models_tofolder(dir_path, final_embeddings, reverse_dictionar
 
     def save_to_word2vec_model(vocabs_list):
         # print("Saving word2vec format ...")
-        filewriter = open(os.path.join(dir_path, "word2vec.txt"), "w", encoding="utf-8")
-
-        filewriter.write("%s %s\n" % (len(vocabs_list), len(final_embeddings[0])))
-        for word in vocabs_list:
-            word_idx = vocabs_list.index(word)
-            emb_vector = final_embeddings[word_idx]
-            line = ' '.join(["%s" % (x) for x in emb_vector])
-            filewriter.write(word + " " + line + "\n")
-
-        filewriter.close()
+        with open(os.path.join(dir_path, "word2vec.txt"), "w", encoding="utf-8") as filewriter:
+            filewriter.write("%s %s\n" % (len(vocabs_list), len(final_embeddings[0])))
+            # enumerate() instead of vocabs_list.index(word): same row, but O(n) instead of O(n^2).
+            for word_idx, word in enumerate(vocabs_list):
+                emb_vector = final_embeddings[word_idx]
+                line = ' '.join(["%s" % (x) for x in emb_vector])
+                filewriter.write(word + " " + line + "\n")
         # print("Done!")
 
     file_utils.save_obj(final_embeddings, os.path.join(dir_path, "final_embeddings"))
@@ -108,11 +105,11 @@ def create_single_utf8_file(input_dir, output_file):
     # out = '/home/sonvx/word2vecVN/allvntext.utf8.txt'
     # out = './wiki_all.vi.utf8.txt'
     files = glob.glob(input_dir)
-    for file in files:
-        with open(output_file, "a") as myfile:
-            with open(file, "r") as fp:
+    with open(output_file, "a", encoding="utf-8") as myfile:
+        for file in files:
+            # errors="ignore" drops undecodable bytes (Python 2's .decode('utf-8', 'ignore')).
+            with open(file, "r", encoding="utf-8", errors="ignore") as fp:
                 for line in fp:
                     line = line.strip().lower()
-                    line = line.decode('utf-8', 'ignore').encode("utf-8")
                     myfile.write(line)
     print("done")

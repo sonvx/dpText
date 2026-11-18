@@ -6,7 +6,7 @@
 Note that: because of the myPersonality data is a register data, we can only provide the pre-trained embedding model. 
 Thus, if user want to train the model again, they have to train on their own data or on Text8 data as we provided.
 *  How to run:
-> 01.run_train_dp_embedding.sh
+> 10.run_train_dp_embedding.sh
 * Expected output:
 > A pre-trained embedding model at <OUTPUT>.
 
@@ -15,7 +15,7 @@ Thus, if user want to train the model again, they have to train on their own dat
 
 *  How to run:
 
-> 02.run_changes_in_semantic_space.sh
+> 01.run_changes_in_semantic_spaces.sh
 
 * Expected output:
 
@@ -24,7 +24,7 @@ This experiment run the linear regression task on personality regression by usin
 , which was trained from the register myPersonality data.
 
 *  How to run:
-> 03.run_evaluation_regression_task.sh
+> 02.run_evaluation_regression_task.sh
 
 * Expected output:
 

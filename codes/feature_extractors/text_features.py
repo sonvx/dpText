@@ -4,8 +4,26 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
 import re
 import emoji
+import nltk
 from nltk.tokenize import TweetTokenizer
 from word2vec import embedding_utils
+
+
+_NLTK_TOKENIZER_READY = False
+
+
+def _ensure_nltk_tokenizer():
+    """nltk.word_tokenize() needs the 'punkt_tab' model (NLTK >= 3.8.2); fetch it once if missing."""
+    global _NLTK_TOKENIZER_READY
+    if _NLTK_TOKENIZER_READY:
+        return
+    try:
+        nltk.data.find("tokenizers/punkt_tab")
+    except LookupError:
+        if not nltk.download("punkt_tab", quiet=True):
+            raise RuntimeError("Could not download the NLTK 'punkt_tab' tokenizer. "
+                               "Run: python -m nltk.downloader punkt_tab")
+    _NLTK_TOKENIZER_READY = True
 
 
 class Text_Features(object):
@@ -143,20 +161,12 @@ class Text_Features(object):
         return out_word_2_vec, out_char_2_vec
 
     def tokenize_text(self, unicode_or_str, to_lowercase=False):
-        import nltk
-        # if type(text) == str:
-        #     # print text
-        #     text = unicode(text).encode('utf8')
-
+        _ensure_nltk_tokenizer()
         if isinstance(unicode_or_str, str):
             text = unicode_or_str
-            decoded = False
         else:
             text = unicode_or_str.decode("utf8")
-            decoded = True
 
-        # print text
-        # text = text.decode('utf-8')
         if to_lowercase:
             text = text.lower()
         text = re.sub("<.*?>|&.*?;", " ", text)
@@ -177,17 +187,6 @@ class Text_Features(object):
             output.extend(word_2vec)
             output.extend(char_2vec)
         return output
-
-    def load_char_model(self):
-        char_model = dict()
-        file_path = "pretrained_models/public_embeddings/char-embeddings.txt"
-        file = open(file_path, "r")
-        for line in file:
-            elements = line.split()
-            if len(elements) > 100: # because embedding dim is higher than 100.
-                # char_model[elements[0]] = np.array(map(float, elements[1:])).tolist()
-                char_model[elements[0]] = np.array([float(i) for i in elements[1:]]).tolist()
-        return char_model
 
     def feature_generator(self, X_text, y_data, test_percent=0.2, load_from_file=False):
         """
@@ -210,7 +209,7 @@ class Text_Features(object):
                                                max_features=1000, smooth_idf=True, norm='l2')
 
             counts = ngram_vectorizer.fit_transform(X_text)
-            print("#N-gram char-based features = ", len(ngram_vectorizer.get_feature_names()))
+            print("#N-gram char-based features = ", len(ngram_vectorizer.get_feature_names_out()))
             n_grams_features = counts.toarray()
             features = n_grams_features
             del n_grams_features
@@ -222,16 +221,19 @@ class Text_Features(object):
             tfidfs_features = tfidfs.toarray()
             print("###INFO: word-based tfidfs_features = ", len(tfidfs_features))
             features = np.append(features, tfidfs_features, 1)
-            print("#Tf-idf word-based Ngram features: ", len(tfidf_vectorizer.get_feature_names()))
+            print("#Tf-idf word-based Ngram features: ", len(tfidf_vectorizer.get_feature_names_out()))
             del tfidfs_features
 
             if self.use_embedding:
-                print("INFO: using embeddings: ", self.model_names_list)
+                print("INFO: using embeddings: ", self.model_names_list[:len(self.model_paths_list)])
 
                 char_model = embedding_utils.reload_char2vec_model(self.char_model_path, self.char_model_dims)
+                # The public-only baseline passes 2 model paths (word2vec, char2vec) instead of 3,
+                # so only use the names/dims of the models that were actually given.
+                n_models = len(self.model_paths_list)
                 embedding_models = embedding_utils.reload_embedding_models(self.model_paths_list,
-                                                                           self.model_names_list,
-                                                                           self.model_dims_list,
+                                                                           self.model_names_list[:n_models],
+                                                                           self.model_dims_list[:n_models],
                                                                            char_model)
 
                 embedding_features = []
@@ -266,20 +268,20 @@ class Text_Features(object):
                 # y_train_data = np.asarray(y_data[0:train_valid_splitter])
                 # y_test_data = np.asarray(y_data[0:train_valid_splitter])
                 print("Saving data ...")
-                if not os.path.exists('saved'):
-                    os.makedirs('saved')
+                os.makedirs(self.saved_dir, exist_ok=True)
                 np.save(os.path.join(self.saved_dir, "X_train_data"), X_train_data)
                 print("Saved X_train_data!")
                 np.save(os.path.join(self.saved_dir, "X_test_data"), X_test_data)
                 print("Saved X_test_data!")
 
                 np.save(os.path.join(self.saved_dir, "y_train_data"), y_train_data)
-                print("Saved y_test_data!")
+                print("Saved y_train_data!")
                 np.save(os.path.join(self.saved_dir, "y_test_data"), y_test_data)
                 print("Saved y_test_data!")
                 return X_train_data, X_test_data, y_train_data, y_test_data
             else:
                 X_full_data = np.asarray(features)
+                os.makedirs(self.saved_dir, exist_ok=True)
                 np.save(os.path.join(self.saved_dir, "X_full_data"), X_full_data)
                 np.save(os.path.join(self.saved_dir, "y_full_data"), y_data)
                 return X_full_data, y_data
@@ -293,7 +295,7 @@ class Text_Features(object):
                 print("Loaded test_data!")
 
                 y_train_data = np.load(os.path.join(self.saved_dir, "y_train_data.npy"))
-                print("Loaded y_test_data!")
+                print("Loaded y_train_data!")
                 y_test_data = np.load(os.path.join(self.saved_dir, "y_test_data.npy"))
                 print("Loaded y_test_data!")
                 return X_train_data, X_test_data, y_train_data, y_test_data

@@ -35,18 +35,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import sys
-
-from absl import app
-from absl import flags
 import math
 import numpy as np
 from scipy import special
 
-FLAGS = flags.FLAGS
-flags.DEFINE_boolean("rdp_verbose", False,
-                     "Output intermediate results for RDP computation.")
-FLAGS(sys.argv)  # Load the flags (including on import)
+# Set to True to print intermediate results of the RDP computation.
+# (Previously an absl flag parsed from sys.argv at import time, which broke any
+# script that imported this module and defined its own command-line flags.)
+VERBOSE = False
 
 
 ########################
@@ -111,7 +107,7 @@ def _compute_log_a_int(q, sigma, alpha):
     log_a2 = _log_add(log_a2, s2)
 
   log_a = _log_add(math.log(1 - q) + log_a1, math.log(q) + log_a2)
-  if FLAGS.rdp_verbose:
+  if VERBOSE:
     print("A: by binomial expansion    {} = {} + {}".format(
         _log_print(log_a),
         _log_print(math.log(1 - q) + log_a1), _log_print(math.log(q) + log_a2)))
@@ -324,16 +320,16 @@ def _compute_rdp(q, sigma, alpha):
   log_bound_b = _log_bound_b_elementary(q, alpha - 1)  # does not require sigma
 
   if log_bound_b < log_moment_a:
-    if FLAGS.rdp_verbose:
+    if VERBOSE:
       print("Elementary bound suffices   : {} < {}".format(
           _log_print(log_bound_b), _log_print(log_moment_a)))
   else:
     log_bound_b2 = _bound_log_b(q, sigma, alpha - 1)
     if math.isnan(log_bound_b2):
-      if FLAGS.rdp_verbose:
+      if VERBOSE:
         print("B bound failed to converge")
     else:
-      if FLAGS.rdp_verbose and (log_bound_b2 < log_bound_b):
+      if VERBOSE and (log_bound_b2 < log_bound_b):
         print("Elementary bound is stronger: {} < {}".format(
             _log_print(log_bound_b2), _log_print(log_bound_b)))
       log_bound_b = min(log_bound_b, log_bound_b2)
@@ -388,11 +384,3 @@ def get_privacy_spent(orders, rdp, target_eps=None, target_delta=None):
   else:
     eps, opt_order = _compute_eps(orders, rdp, target_delta)
     return eps, target_delta, opt_order
-
-
-def main(_):
-  pass
-
-
-if __name__ == "__main__":
-  app.run(main)

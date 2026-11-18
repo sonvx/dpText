@@ -15,9 +15,9 @@
 
 """Differentially private optimizers.
 """
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
-from codes.differential_privacy import sanitizer as san
+from differential_privacy import sanitizer as san
 
 
 def ComputeDPPrincipalProjection(data, projection_dims,
