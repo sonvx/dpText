@@ -2,6 +2,7 @@ from gensim.models import KeyedVectors as Word2Vec
 import numpy as np
 from word2vec import embedding_utils
 from utils import file_utils
+import collections
 import os, re
 import logging
 
@@ -22,6 +23,7 @@ class embedding_model(object):
         self.model = None
         self.char_model = None
         self.vocabs_list = None
+        self.vocab_index = None  # word -> row index, built from vocabs_list for O(1) lookups
         self.vector_dim = vector_dim
         # TODO: update this changeable param later
         # unk, random, mean, replace_by_character_embedding
@@ -37,15 +39,26 @@ class embedding_model(object):
         elif self.name == model_constants.char2vec:
             self.model = dict()
             print("Loading model_path = ", model_path)
-            file = open(model_path, "r")
-            for line in file:
-                elements = line.split()
-                if len(elements) > 100:  # because embedding dim is higher than 100.
-                    # char_model[elements[0]] = np.array(map(float, elements[1:])).tolist()
-                    self.model[elements[0]] = np.array([float(i) for i in elements[1:]]).tolist()
+            with open(model_path, "r", encoding="utf-8") as file:
+                for line in file:
+                    elements = line.split()
+                    if len(elements) > 100:  # because embedding dim is higher than 100.
+                        self.model[elements[0]] = [float(i) for i in elements[1:]]
+            # Rows whose character is whitespace lose their key in split() and come out one value
+            # short; drop rows that don't have the file's dominant dimension.
+            dims = collections.Counter(len(vec) for vec in self.model.values())
+            if dims:
+                file_dim = dims.most_common(1)[0][0]
+                self.model = {c: vec for c, vec in self.model.items() if len(vec) == file_dim}
+                if file_dim != self.vector_dim:
+                    # E.g. the shipped char-embeddings.txt is 300-d while the default config says 100.
+                    logging.warning("char2vec: using the file's dimension %s instead of the configured %s (%s)",
+                                    file_dim, self.vector_dim, model_path)
+                    self.vector_dim = file_dim
             return self.model
         elif self.name == model_constants.private_word2vec:
-            self.model, _, self.vocabs_list = embedding_utils.reload_embeddings(model_path)
+            self.model, _, vocabs_list = embedding_utils.reload_embeddings(model_path)
+            self._set_vocabs_list(vocabs_list)
         else:
             raise Exception("Unknown embedding models!")
 
@@ -87,6 +100,14 @@ class embedding_model(object):
         else:
             return False
 
+    def _set_vocabs_list(self, vocabs_list):
+        self.vocabs_list = vocabs_list
+        self.vocab_index = None
+        if vocabs_list is not None:
+            self.vocab_index = {}
+            for idx, word in enumerate(vocabs_list):
+                self.vocab_index.setdefault(word, idx)  # keep first occurrence, like list.index()
+
     def set_char_model(self, char_model):
         self.char_model = char_model
 
@@ -97,7 +118,7 @@ class embedding_model(object):
         :return:
         """
         if vocab_file_path:
-            self.vocabs_list = file_utils.load_obj(vocab_file_path)
+            self._set_vocabs_list(file_utils.load_obj(vocab_file_path))
 
     def get_char_vector(self, char_model, word):
         """
@@ -135,8 +156,8 @@ class embedding_model(object):
     def is_unknown_word(self, word):
         """Check whether or not a word is unknown"""
         is_unknown_word = False
-        if self.vocabs_list is not None:
-            if word not in self.vocabs_list:
+        if self.vocab_index is not None:
+            if word not in self.vocab_index:
                 is_unknown_word = True
         else:
             if word not in self.model:
@@ -173,7 +194,7 @@ class embedding_model(object):
                 # For now we have self.vector_dim, max_dim, and len(rtn_vector)
                 # Update: move to use self.vector_dim only
                 if len(rtn_vector) > self.vector_dim:
-                    print("Warning: auto trim to %s/%s dimensions"%(self.vector_dim, len(rtn_vector)))
+                    logging.debug("auto trim to %s/%s dimensions", self.vector_dim, len(rtn_vector))
                     rtn_vector = self.model[word][:self.vector_dim]
 
             elif self.name == model_constants.elmo:
@@ -186,7 +207,7 @@ class embedding_model(object):
                                                                                                    len(rtn_vector)))
                     rtn_vector = np.mean([vector1, vector2], 0)
                 elif len(rtn_vector) > self.vector_dim:
-                    print("Warning: auto trim to %s/%s dimensions" % (self.vector_dim, len(rtn_vector)))
+                    logging.debug("auto trim to %s/%s dimensions", self.vector_dim, len(rtn_vector))
                     rtn_vector = self.model[word][:self.vector_dim]
 
             elif self.name == model_constants.char2vec:
@@ -194,9 +215,9 @@ class embedding_model(object):
 
             elif self.name == model_constants.private_word2vec:
                 # Handle unknown word - Not need for now since we handle unknown words first
-                if word not in self.vocabs_list:
+                if word not in self.vocab_index:
                     word = "UNK"
-                word_idx = self.vocabs_list.index(word)
+                word_idx = self.vocab_index[word]
                 emb_vector = self.model[word_idx]
                 rtn_vector = emb_vector
 
@@ -225,16 +246,18 @@ class embedding_model(object):
         # Here we handle features based on the w2v model where
         # numbers and punctuations are encoded as <punct>, <number>
         if self.name == model_constants.word2vec:
-            if self.is_number(word):
+            # Only models trained with these placeholder tokens have them (e.g. the public
+            # GoogleNews vectors do not); otherwise fall back to the character embedding.
+            if self.is_number(word) and "<number>" in self.model:
                 rtn_vector = self.model["<number>"]
-            elif self.is_punct(word):
+            elif self.is_punct(word) and "<punct>" in self.model:
                 rtn_vector = self.model["<punct>"]
             else:
                 rtn_vector = self.get_char_vector(self.char_model, word)
 
             if rtn_vector is not None:
                 if len(rtn_vector) > self.vector_dim:
-                    print("Warning: auto trim to %s/%s dimensions"%(self.vector_dim, len(rtn_vector)))
+                    logging.debug("auto trim to %s/%s dimensions", self.vector_dim, len(rtn_vector))
                     return rtn_vector[:self.vector_dim]
                 else:
                     return rtn_vector

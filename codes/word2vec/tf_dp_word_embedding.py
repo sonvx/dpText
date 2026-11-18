@@ -1,59 +1,65 @@
-# These are all the modules we'll be using later. Make sure you can import them
-# before proceeding further.
-# %matplotlib inline
-from __future__ import print_function
+"""Train word2vec (skip-gram) embeddings on text8 with or without differential privacy.
+
+The model is written in TensorFlow 1.x graph style and runs on TensorFlow 2.x through
+``tf.compat.v1`` (v2 behaviour disabled), so the training algorithm is unchanged.
+
+Usage (from the codes/ directory, see 10.run_train_dp_embedding.sh):
+    PYTHONPATH=$PWD python3 ./word2vec/tf_dp_word_embedding.py --train_path=../data/text8.zip \
+        --trained_models=../data/text8_data/trained_models_dp_dpsgd --with_dp=True --clip_by_norm=True
+"""
 import collections
+import json
+import logging
 import math
-import numpy as np
+import os
 import random
-import tensorflow as tf
 import zipfile
-from six.moves import range
-# from differential_privacy import accountant
-from tensorflow.python.training.gradient_descent import GradientDescentOptimizer
-from tensorflow.python.training.adam import AdamOptimizer
-from tensorflow.python.training.adagrad import AdagradOptimizer
+
+import numpy as np
+import tensorflow.compat.v1 as tf
+from absl import app, flags
+
 # See good outputs from Tex8
 # here: https://github.com/tensorflow/tensorflow/blob/master/tensorflow/examples/udacity/5_word2vec.ipynb
-from codes.differential_privacy import accountant, utils
-from codes.word2vec import embedding_utils
-import os, logging, json
+from differential_privacy import accountant
+from differential_privacy import utils as dp_utils
+from utils import file_utils
+from word2vec import embedding_utils
 
+tf.disable_v2_behavior()
 
-tf.flags.DEFINE_string("train_path", "../data/text8.zip",
-                        "Training file path. E.g., ../data/text8.zip")
-tf.flags.DEFINE_bool("nce_loss", False,
-                        "Using nce_loss for word2vec")
-tf.flags.DEFINE_string("trained_models", "../Data/Accountant_Amortized/trained_models",
-                        "Trained models path.")
-tf.flags.DEFINE_integer("NUM_STEPS", 100001,
-                        "Number of running epochs.")
-tf.flags.DEFINE_bool("with_dp", False,
-                        "Train with differential privacy guarantee")
+flags.DEFINE_string("train_path", "../data/text8.zip",
+                    "Training file path. E.g., ../data/text8.zip")
+flags.DEFINE_bool("nce_loss", False,
+                  "Unused, kept for backward compatibility. Use --with_nce_loss.")
+flags.DEFINE_string("trained_models", "../data/text8_data/trained_models",
+                    "Trained models path.")
+flags.DEFINE_integer("NUM_STEPS", 100001,
+                     "Number of running epochs.")
+flags.DEFINE_bool("with_dp", False,
+                  "Train with differential privacy guarantee")
 
-tf.flags.DEFINE_bool("RESTORE_LAST_CHECK_POINT", False,
-                       "Restore last check point and keep training up to the new limited epochs.")
+flags.DEFINE_bool("RESTORE_LAST_CHECK_POINT", False,
+                  "Restore last check point and keep training up to the new limited epochs.")
 
-tf.flags.DEFINE_bool("DEBUG", False, "Enable debug.")
+flags.DEFINE_bool("DEBUG", False, "Enable debug.")
 
-tf.flags.DEFINE_bool("with_nce_loss", False, "Using nce_loss instead of softmax loss.")
-tf.flags.DEFINE_string("optimizer", "sgd", "Optimizer: sgd by default. adam is another option.")
-tf.flags.DEFINE_bool("save_best_model_alltime", False, "Save best model everytime we see it. Warning: super slow.")
-tf.flags.DEFINE_bool("clip_by_norm", False, "Clip by norm is faster than clip by Abadi et al. in DP-SGD")
+flags.DEFINE_bool("with_nce_loss", False, "Using nce_loss instead of softmax loss.")
+flags.DEFINE_string("optimizer", "sgd", "Optimizer: sgd by default. adam is another option.")
+flags.DEFINE_bool("save_best_model_alltime", False, "Save best model everytime we see it. Warning: super slow.")
+flags.DEFINE_bool("clip_by_norm", False, "Clip by norm is faster than clip by Abadi et al. in DP-SGD")
 
-FLAGS = tf.flags.FLAGS
+FLAGS = flags.FLAGS
 
-
-def make_folders():
-    dirs = [FLAGS.trained_models]
-    for dir_ in dirs:
-        if not os.path.exists(dir_):
-            os.makedirs(dir_)
-
-make_folders()
-
-logging.basicConfig(filename=os.path.join(FLAGS.trained_models, "manual.logs"), filemode="w", level=logging.DEBUG)
-logging.info(json.dumps(FLAGS.flag_values_dict()))
+# Set in main(); used as module-level state by the helpers below.
+data = None
+data_index = 0
+reverse_dictionary = None
+vocabulary_size = 50000
+num_steps = None
+max_early_stopping = -1
+target_eps = None
+saving_pointers = None
 
 
 # def maybe_download(filename, expected_bytes):
@@ -84,13 +90,12 @@ def collect_data(vocabulary_size=10000, test_data=False, reload_from_files=False
 
 
 def read_data(filename):
-    from codes.utils import file_utils
     file_out = filename + "_saved"
 
     if not os.path.exists(file_out + ".pkl"):
         """Extract the first file enclosed in a zip file as a list of words."""
         with zipfile.ZipFile(filename) as f:
-            data = tf.compat.as_str(f.read(f.namelist()[0])).split()
+            data = f.read(f.namelist()[0]).decode("utf-8").split()
 
             # Not recommended. Please use preparing_data.py instead.
             # if not FLAGS.test_data: # only clean on real data
@@ -180,6 +185,7 @@ def plot_with_labels(low_dim_embs, labels, filename):
             va='bottom')
 
     plt.savefig(filename)
+    plt.close()  # free the figure; this is called at every saving point
 
 
 def saving_state(dir_out_path, spent_eps_deltas, temp_embeddings, tf_saver, tf_session):
@@ -194,24 +200,20 @@ def saving_state(dir_out_path, spent_eps_deltas, temp_embeddings, tf_saver, tf_s
     # Save embedding models.
 
     log_dir = os.path.join(dir_out_path, "logs")
-
-    if not os.path.exists(dir_out_path):
-        os.makedirs(dir_out_path)
-        os.makedirs(log_dir)
+    # dir_out_path may already exist (e.g. the "_best_one" folder), so always ensure log_dir exists.
+    os.makedirs(log_dir, exist_ok=True)
 
     tf_saver.save(tf_session, os.path.join(log_dir, 'model.ckpt'))
-    writer = open(os.path.join(dir_out_path, "manual.logs"), "w")
-    writer.write("%s" % spent_eps_deltas)
-    writer.close()
+    with open(os.path.join(dir_out_path, "manual.logs"), "w") as writer:
+        writer.write("%s" % spent_eps_deltas)
     embedding_utils.save_embedding_models_tofolder(dir_out_path, temp_embeddings, reverse_dictionary, vocabulary_size)
 
     try:
         # pylint: disable=g-import-not-at-top
         from sklearn.manifold import TSNE
-        import matplotlib.pyplot as plt
         # final_embeddings = temp_embeddings.eval()
         tsne = TSNE(
-            perplexity=30, n_components=2, init='pca', n_iter=5000, method='exact')
+            perplexity=30, n_components=2, init='pca', max_iter=5000, method='exact')
         plot_only = 500
         low_dim_embs = tsne.fit_transform(temp_embeddings[:plot_only, :])
         labels = [reverse_dictionary[i] for i in range(plot_only)]
@@ -249,11 +251,10 @@ def training_embedding(reverse_dictionary, with_dp = False):
     sigma = 5  # 'sigma'
     delta = 1e-5  # 'delta'
 
-    sess = tf.InteractiveSession()
+    # allow_soft_placement: fall back to the CPU for the ops pinned to '/gpu:0' below when no GPU
+    # is available (otherwise TensorFlow raises an error on CPU-only machines).
+    sess = tf.InteractiveSession(config=tf.ConfigProto(allow_soft_placement=True))
 
-    graph = tf.Graph()
-    avg_loss_arr = []
-    loss_arr = []
     # with graph.as_default(), tf.device('/cpu:0'):
     # Input data.
     with tf.device('/gpu:0'):
@@ -310,14 +311,14 @@ def training_embedding(reverse_dictionary, with_dp = False):
     # optimizer = tf.train.AdagradOptimizer(learning_rate).minimize(loss)
     # optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(cross_entropy)
 
-    optimizer = GradientDescentOptimizer(learning_rate)
+    optimizer = tf.train.GradientDescentOptimizer(learning_rate)
     if FLAGS.optimizer == "adam":
         # cannot use adam so far. Tested and the model couldn't converge.
-        optimizer = AdamOptimizer(learning_rate)
+        optimizer = tf.train.AdamOptimizer(learning_rate)
         print("##INFO: Using adam optimizer")
     if FLAGS.optimizer == "adagrad":
         # cannot use adam so far. Tested and the model couldn't converge.
-        optimizer = AdagradOptimizer(learning_rate)
+        optimizer = tf.train.AdagradOptimizer(learning_rate)
         print("##INFO: Using adagrad optimizer")
 
     log_dir = os.path.join(FLAGS.trained_models, "logs")
@@ -342,9 +343,9 @@ def training_embedding(reverse_dictionary, with_dp = False):
             gb_softmax_biases = tf.clip_by_norm(gb_softmax_biases, clip_bound)
     else:
         # dp-sgd: slow and require more memory but converge faster, take less epochs.
-        gw_Embeddings = utils.BatchClipByL2norm(gw_Embeddings, clip_bound)
-        gw_softmax_weights = utils.BatchClipByL2norm(gw_softmax_weights, clip_bound)
-        gb_softmax_biases = utils.BatchClipByL2norm(gb_softmax_biases, clip_bound)
+        gw_Embeddings = dp_utils.BatchClipByL2norm(gw_Embeddings, clip_bound)
+        gw_softmax_weights = dp_utils.BatchClipByL2norm(gw_softmax_weights, clip_bound)
+        gb_softmax_biases = dp_utils.BatchClipByL2norm(gb_softmax_biases, clip_bound)
 
     sensitivity = clip_bound  # adjacency matrix with one more tuple
 
@@ -369,10 +370,12 @@ def training_embedding(reverse_dictionary, with_dp = False):
     # Compute the similarity between minibatch examples and all embeddings.
     # We use the cosine distance:
     with tf.device('/gpu:0'):
-        norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keep_dims=True))
+        norm = tf.sqrt(tf.reduce_sum(tf.square(embeddings), 1, keepdims=True))
     normalized_embeddings = embeddings / norm
     valid_embeddings = tf.nn.embedding_lookup(normalized_embeddings, valid_dataset)
     similarity = tf.matmul(valid_embeddings, tf.transpose(normalized_embeddings))
+    # Built once here: creating it inside the training loop kept adding new ops to the graph.
+    mean_abs_embedding = tf.reduce_mean(tf.abs(embeddings))
 
     min_loss = 10**4
     per_dec_count = 0
@@ -384,6 +387,8 @@ def training_embedding(reverse_dictionary, with_dp = False):
     step = 0
     average_loss_arr = []
     saving_pointer_idx = 0
+    current_avg_loss = None
+    spent_eps_deltas = None
 
     # put it here because Adam has its own variables.
     sess.run(tf.global_variables_initializer())
@@ -411,21 +416,21 @@ def training_embedding(reverse_dictionary, with_dp = False):
             saver.restore(sess, checkpoint_path)
             print("Restored the latest checkpoint at %s." % (checkpoint_path))
 
+    # note that computing similarity is expensive (~20% slowdown if computed every 500 steps).
+    # int(): with the default NUM_STEPS=100001 the old float (20000.2) only matched step 0.
+    check_step = max(1, int(FLAGS.NUM_STEPS * 0.2))
+
     while running:
         # for step in range(num_steps):
         batch_data, batch_labels = generate_batch(batch_size, num_skips, skip_window)
-        print("Global data_index = ", data_index)
-        # feed_dict = {train_dataset: batch_data, train_labels: batch_labels}
+        if FLAGS.DEBUG:
+            print("Global data_index = ", data_index)
+        feed_dict = {train_dataset: batch_data, train_labels: batch_labels}
 
         # old: sess.run([optimizer, cross_entropy], feed_dict=feed_dict)
         # template: train_step.run(feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5});
-        train_step.run(feed_dict={train_dataset: batch_data, train_labels: batch_labels})
-        loss = cross_entropy.eval(feed_dict={train_dataset: batch_data, train_labels: batch_labels})
-
-        # loss_arr.append(l)
-        # average_loss += l
-        # current_avg_loss = average_loss/step
-        # avg_loss_arr.append(current_avg_loss)
+        train_step.run(feed_dict=feed_dict)
+        loss = cross_entropy.eval(feed_dict=feed_dict)
 
         sess.run([privacy_accum_op])
         # print(step, spent_eps_deltas)
@@ -441,32 +446,22 @@ def training_embedding(reverse_dictionary, with_dp = False):
         average_loss_arr.append(current_avg_loss)
 
         if step % 200 == 0:
-            # if step > 0:
-                # average_loss = average_loss / 2000
             # The average loss is an estimate of the loss over the last 2000 batches.
             print('Average loss at step %d: %f' % (step, current_avg_loss))
-            # TODO: turns this back on if not sure how average_loss influences training process
             print("Embedding: ")
-            em_val = tf.reduce_mean(tf.abs(embeddings))
-            print(sess.run(em_val))
-            # average_loss = 0
-        # note that this is expensive (~20% slowdown if computed every 500 steps)
-        check_step = (FLAGS.NUM_STEPS * 0.2)
-        if step % check_step == 0:
-            # gw_emb = tf.reduce_mean(tf.abs(gw_Embeddings))
-            # print("Embedding gradients: ")
-            # print(sess.run(gw_emb))
+            print(sess.run(mean_abs_embedding))
 
+        if step % check_step == 0:
             sim = similarity.eval()
             for i in range(valid_size):
                 valid_word = reverse_dictionary[valid_examples[i]]
                 top_k = 8  # number of nearest neighbors
                 nearest = (-sim[i, :]).argsort()[1:top_k + 1]
                 log = 'Nearest to %s:' % valid_word
-            for k in range(top_k):
-                close_word = reverse_dictionary[nearest[k]]
-                log = '%s %s,' % (log, close_word)
-            print(log)
+                for k in range(top_k):
+                    close_word = reverse_dictionary[nearest[k]]
+                    log = '%s %s,' % (log, close_word)
+                print(log)
 
         current_saving_dir = os.path.join(FLAGS.trained_models, "_%sepoch" %
                                           (saving_pointers[saving_pointer_idx]))
@@ -477,8 +472,7 @@ def training_embedding(reverse_dictionary, with_dp = False):
 
             if FLAGS.save_best_model_alltime:
                 best_of_saving_point_dir = os.path.join(current_saving_dir, "_best_one")
-                if not os.path.exists(best_of_saving_point_dir):
-                    os.makedirs(best_of_saving_point_dir)
+                os.makedirs(best_of_saving_point_dir, exist_ok=True)
 
                 temp_embeddings = normalized_embeddings.eval()
                 spent_eps_deltas = priv_accountant.get_privacy_spent(sess, target_eps=target_eps)
@@ -505,21 +499,30 @@ def training_embedding(reverse_dictionary, with_dp = False):
             msg = "##INFO: STEP %s: avg_loss history: avg_loss_arr = %s" % (step, average_loss_arr)
             logging.info(msg)
 
-        if step % (num_steps - 1) == 0:
+        if num_steps > 1 and step % (num_steps - 1) == 0:
             print("Final privacy spent: ", step, spent_eps_deltas)
 
-    print ("Stopped at %s, \nFinal avg_loss = %s"%(step, avg_loss_arr))
-    print("loss = %s" % (loss_arr))
+    print("Stopped at %s, \nFinal avg_loss = %s" % (step, current_avg_loss))
 
     # final_embeddings = normalized_embeddings.eval()
     sess.close()
 
 
-if __name__ == "__main__":
+def main(argv):
+    del argv  # unused
+    global data, data_index, reverse_dictionary, vocabulary_size, num_steps, max_early_stopping
+    global target_eps, saving_pointers
+
+    os.makedirs(FLAGS.trained_models, exist_ok=True)
+    # force=True: absl installs its own root handler, which would otherwise make this a no-op.
+    logging.basicConfig(filename=os.path.join(FLAGS.trained_models, "manual.logs"), filemode="w",
+                        level=logging.DEBUG, force=True)
+    logging.info(json.dumps(FLAGS.flag_values_dict()))
+
     # num_steps = 10000  # 'number of steps T = E * N / L = E / q' (epoch * total_docs/ lot_size).
     num_steps = FLAGS.NUM_STEPS
     max_early_stopping = -1 # num_steps / 10
-    target_eps =  [0.125, 0.25, 0.5, 1, 2, 4, 8]
+    target_eps = [0.125, 0.25, 0.5, 1, 2, 4, 8]
 
     saving_pointers = [20, 200, 500, 1000, 5000, 10000, 20000, 50000, 90000, num_steps-1]
 
@@ -546,5 +549,8 @@ if __name__ == "__main__":
         print('    batch:', [reverse_dictionary[bi] for bi in batch])
         print('    labels:', [reverse_dictionary[li] for li in labels.reshape(8)])
 
-    training_embedding(reverse_dictionary, with_dp=False)
+    training_embedding(reverse_dictionary, with_dp=FLAGS.with_dp)
 
+
+if __name__ == "__main__":
+    app.run(main)

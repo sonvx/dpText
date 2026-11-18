@@ -15,9 +15,9 @@ def clean_str(string):
     string = re.sub(r"\'ll", " \'ll", string)
     string = re.sub(r",", " , ", string)
     string = re.sub(r"!", " ! ", string)
-    string = re.sub(r"\(", " \( ", string)
-    string = re.sub(r"\)", " \) ", string)
-    string = re.sub(r"\?", " \? ", string)
+    string = re.sub(r"\(", r" \( ", string)
+    string = re.sub(r"\)", r" \) ", string)
+    string = re.sub(r"\?", r" \? ", string)
     string = re.sub(r"\s{2,}", " ", string)
     return string.strip().lower()
 
@@ -36,15 +36,14 @@ def clean_str_except_semicolon(string):
     string = re.sub(r"\'ll", " \'ll", string)
     string = re.sub(r",", " , ", string)
     string = re.sub(r"!", " ! ", string)
-    string = re.sub(r"\(", " \( ", string)
-    string = re.sub(r"\)", " \) ", string)
-    string = re.sub(r"\?", " \? ", string)
+    string = re.sub(r"\(", r" \( ", string)
+    string = re.sub(r"\)", r" \) ", string)
+    string = re.sub(r"\?", r" \? ", string)
     string = re.sub(r"\s{2,}", " ", string)
     return string.strip().lower()
 
 
 def clean_text(text):
-    import re
     contractions = re.compile(r"'|-|\"")
     # all non alphanumeric
     symbols = re.compile(r'(\W+)', re.U)

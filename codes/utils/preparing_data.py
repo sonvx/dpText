@@ -1,19 +1,31 @@
-import text_utils
-import tensorflow as tf
+"""Normalise a raw text corpus (one document per line) before training embeddings.
+
+Usage (from the codes/ directory):
+    python3 -m utils.preparing_data --input_file ../data/text8.txt --output_file ../data/text8.txt.clean
+"""
+import argparse
+
 import emoji
 
+from utils import text_utils
 
-tf.flags.DEFINE_string("input_file", "../Data/text8.txt", "input file to pre-process")
-tf.flags.DEFINE_string("output_file", "../Data/text8.txt.clean", "Output file after pre-processing")
 
-FLAGS = tf.flags.FLAGS
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--input_file", default="../data/text8.txt", help="input file to pre-process")
+    parser.add_argument("--output_file", default="../data/text8.txt.clean",
+                        help="Output file after pre-processing")
+    args = parser.parse_args()
 
-data_samples = list(open(FLAGS.input_file, "r").readlines())
-data_samples = [emoji.demojize(s.strip()) for s in data_samples]
+    with open(args.input_file, "r", encoding="utf-8") as reader:
+        data_samples = [emoji.demojize(line.strip()) for line in reader]
 
-x_text = [text_utils.clean_text(sent) for sent in data_samples]
+    x_text = [text_utils.clean_text(sent) for sent in data_samples]
 
-file_writer = open(FLAGS.output_file, "w", encoding="utf-8")
-for line in x_text:
-    file_writer.write("%s\n"%line)
-file_writer.close()
+    with open(args.output_file, "w", encoding="utf-8") as file_writer:
+        for line in x_text:
+            file_writer.write("%s\n" % line)
+
+
+if __name__ == "__main__":
+    main()

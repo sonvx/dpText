@@ -26,9 +26,9 @@ from __future__ import division
 
 import collections
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
-from codes.differential_privacy import utils
+from differential_privacy import utils
 
 ClipOption = collections.namedtuple("ClipOption",
                                     ["l2norm_bound", "clip"])

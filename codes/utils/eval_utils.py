@@ -109,34 +109,7 @@ def calc_map_character_level(actual, predicted, topK=10):
             # print("hit: %s, map_arr = %s" % (char, map_arr))
         rank += 1
     # print("map_arr = %s done", map_arr)
-    return np.mean(map_arr)
-
-
-import unittest
-import numpy as np
-
-
-def test_apk(self):
-    self.assertAlmostEqual(apk(range(1,6),[6,4,7,1,2], 2), 0.25)
-    self.assertAlmostEqual(apk(range(1,6),[1,1,1,1,1], 5), 0.2)
-    predicted = range(1,21)
-    predicted.extend(range(200,600))
-    self.assertAlmostEqual(apk(range(1,100),predicted, 20), 1.0)
-
-def test_mapk(self):
-    self.assertAlmostEqual(mapk([range(1,5)],[range(1,5)],3), 1.0)
-    self.assertAlmostEqual(mapk([[1,3,4],[1,2,4],[1,3]],
-        [range(1,6),range(1,6),range(1,6)], 3), 0.685185185185185)
-    self.assertAlmostEqual(mapk([range(1,6),range(1,6)],
-        [[6,4,7,1,2],[1,1,1,1,1]], 5), 0.26)
-    self.assertAlmostEqual(mapk([[1,3],[1,2,3],[1,2,3]],
-        [range(1,6),[1,1,1],[1,2,1]], 3), 11.0/18)
-
-
-if __name__ == '__main__':
-    a1 = ["1",'2','3','4']
-    b1 = ['1','5','2','8']
-    print(mapk(a1, b1,4))
-    unittest.main()
-
-
+    if len(map_arr) > 0:
+        return np.mean(map_arr)
+    else:
+        return 0.0  # same convention as calc_map(); np.mean([]) would give nan

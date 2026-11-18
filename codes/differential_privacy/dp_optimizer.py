@@ -20,9 +20,9 @@
 """
 # from __future__ import division
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
-from codes.differential_privacy import utils
+from differential_privacy import utils
 # from differential_privacy.dp_sgd.per_example_gradients import per_example_gradients
 
 

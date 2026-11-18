@@ -30,9 +30,9 @@ import math
 import sys
 
 import numpy
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
-from codes.differential_privacy import utils
+from differential_privacy import utils
 
 EpsDelta = collections.namedtuple("EpsDelta", ["spent_eps", "spent_delta"])
 
@@ -120,7 +120,7 @@ class AmortizedAccountant(object):
     return [EpsDelta(math.sqrt(eps_squared_sum), float(delta_sum))]
 
 
-class MomentsAccountant(object):
+class MomentsAccountant(abc.ABC):
   """Privacy accountant which keeps track of moments of privacy loss.
 
   Note: The constructor of this class creates tf.Variables that must
@@ -169,8 +169,6 @@ class MomentsAccountant(object):
   obtained using generic composition theorems.
 
   """
-
-  __metaclass__ = abc.ABCMeta
 
   def __init__(self, total_examples, moment_orders=32):
     """Initialize a MomentsAccountant.
@@ -279,7 +277,9 @@ class MomentsAccountant(object):
     assert (target_eps is None) ^ (target_deltas is None)
     eps_deltas = []
     log_moments = sess.run(self._log_moments)
-    log_moments_with_order = zip(self._moment_orders, log_moments)
+    # Must be a list: it is iterated once per target eps/delta, and a bare
+    # zip() iterator would be exhausted after the first one.
+    log_moments_with_order = list(zip(self._moment_orders, log_moments))
     if target_eps is not None:
       for eps in target_eps:
         eps_deltas.append(
@@ -332,7 +332,7 @@ class GaussianMomentsAccountant(MomentsAccountant):
       total_examples: total number of examples.
       moment_orders: the order of moments to keep.
     """
-    super(self.__class__, self).__init__(total_examples, moment_orders)
+    super().__init__(total_examples, moment_orders)
     self._binomial_table = utils.GenerateBinomialTable(self._max_moment_order)
 
   def _differential_moments(self, sigma, s, t):

@@ -1,5 +1,7 @@
+import os
+
 from gensim.models import KeyedVectors
-from utils import chart_utils
+from utils import chart_utils  # noqa: F401  (used by the optional plotting calls below)
 
 
 constants_dict = {
@@ -26,9 +28,7 @@ def evaluate_semantic_spaces_topN(models_dict, outfile_name):
 
     print("len(columns_names) = ", len(columns_names))
 
-    final_df = pd.DataFrame(columns=columns_names)
-    print("final_df = ", final_df.head())
-    iloc = 0
+    rows = []
     for model_name in models_dict.keys():
         path_to_model1 = models_dict[model_name]
         print("Loading ...", path_to_model1)
@@ -40,10 +40,11 @@ def evaluate_semantic_spaces_topN(models_dict, outfile_name):
             get_top_sim_words_arr = [model_name, tested_word]
             for word_similar in top_sim:
                 get_top_sim_words_arr.append(word_similar[0])  # + ' - ' + str(wordsimilar[1]))
-            final_df.loc[iloc] = get_top_sim_words_arr
-            iloc += 1
+            rows.append(get_top_sim_words_arr)
 
-    final_df.to_csv("../data/evaluate_embeddings/topsimilarity100" + outfile_name + ".csv")
+    final_df = pd.DataFrame(rows, columns=columns_names)
+    print("final_df = ", final_df.head())
+    final_df.to_csv(os.path.join("../data/evaluate_embeddings/topsimilarity100", outfile_name + ".csv"))
     return None
 
 
@@ -88,7 +89,7 @@ def calculate_map(task_name, with_gold_results=False, is_word_level=False):
                 new_model_counter = 1
                 # reset index for gold standard
                 gold_value_idx = 0
-                list_map_results.append(np.mean(model_lists))
+                list_map_results.append(float(np.mean(model_lists)))
                 model_lists = []
             else:
                 new_model_counter += 1
@@ -117,10 +118,12 @@ def calculate_map(task_name, with_gold_results=False, is_word_level=False):
         #     chart_utils.draw_line_charts_fig2left_wordlevel(list_01, list_02)
         # else:
         #     chart_utils.draw_line_charts_fig2right_charlevel(list_01, list_02)
+        return list_01, list_02
 
     else: # compare two method with each others.
         list_results = map_to_gold_values(dp_values, nodp_values, num_tested_words)
         print("Results (DP vs. NoDP-As-Gold = ", list_results)
+        return list_results
 
 
 if __name__ == "__main__":

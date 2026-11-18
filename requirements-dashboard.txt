@@ -1,0 +1,6 @@
+# Embedding dashboard (codes/run_dashboard.sh): the project requirements plus Streamlit and the chart libraries.
+-r requirements.txt
+streamlit>=1.46
+altair>=5.4
+plotly>=5.24
+watchdog>=4  # efficient file watching, so a running dashboard picks up code changes
